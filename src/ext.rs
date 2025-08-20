@@ -53,3 +53,22 @@ impl fmt::Debug for Protocol {
         self.value.fmt(f)
     }
 }
+
+
+/// 保存原始 HTTP header 报文
+#[derive(Clone, Debug)]
+pub struct OriginalHeaders {
+    raw_bytes: Bytes,
+}
+
+impl OriginalHeaders {
+    /// 创建一个新的 OriginalHeaders 实例
+    pub fn new(raw: Bytes) -> Self {
+        Self { raw_bytes: raw }
+    }
+
+    /// 返回原始 HTTP header 报文的字节数组
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.raw_bytes
+    }
+}
