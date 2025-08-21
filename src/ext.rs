@@ -3,7 +3,6 @@
 use crate::hpack::BytesStr;
 
 use bytes::Bytes;
-use serde_json::StreamDeserializer;
 use std::fmt;
 
 /// Represents the `:protocol` pseudo-header used by
