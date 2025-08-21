@@ -3,6 +3,7 @@
 use crate::hpack::BytesStr;
 
 use bytes::Bytes;
+use serde_json::StreamDeserializer;
 use std::fmt;
 
 /// Represents the `:protocol` pseudo-header used by
@@ -58,17 +59,23 @@ impl fmt::Debug for Protocol {
 /// 保存原始 HTTP header 报文
 #[derive(Clone, Debug)]
 pub struct OriginalHeaders {
-    raw_bytes: Bytes,
+    raw_bytes: Option<Bytes>,
+    headers: Vec<(String, String)>
 }
 
 impl OriginalHeaders {
     /// 创建一个新的 OriginalHeaders 实例
-    pub fn new(raw: Bytes) -> Self {
-        Self { raw_bytes: raw }
+    pub fn new(raw_bytes: Option<Bytes>,headers:Vec<(String, String)>) -> Self {
+        Self { raw_bytes, headers }
     }
 
     /// 返回原始 HTTP header 报文的字节数组
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.raw_bytes
+    pub fn get_raw_bytes(&self) -> Option<&[u8]> {
+        self.raw_bytes.as_ref().map(|bytes| bytes.as_ref())
+    }
+
+    /// 获取原始顺序的header
+    pub fn get_headers(&self) -> &[(String, String)] {
+        &self.headers
     }
 }
