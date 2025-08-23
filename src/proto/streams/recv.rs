@@ -1,5 +1,6 @@
 use super::*;
 use crate::codec::UserError;
+use crate::ext::OriginalHeaders;
 use crate::frame::{self, PushPromiseHeaderError, Reason, DEFAULT_INITIAL_WINDOW_SIZE};
 use crate::proto::{self, Error};
 
@@ -219,7 +220,7 @@ impl Recv {
         }
 
         let stream_id = frame.stream_id();
-        let (pseudo, fields) = frame.into_parts();
+        let (pseudo, fields, original_headers) = frame.into_parts();
 
         if pseudo.protocol.is_some()
             && counts.peer().is_server()
@@ -235,9 +236,19 @@ impl Recv {
         }
 
         if !pseudo.is_informational() {
-            let message = counts
+            let mut message = counts
                 .peer()
                 .convert_poll_message(pseudo, fields, stream_id)?;
+
+            // 将 original_headers 添加到 request 的 extensions  by lktop
+            if let Some(oh) = original_headers {
+                match &mut message {
+                    super::peer::PollMessage::Server(ref mut request) => {
+                        request.extensions_mut().insert(oh);
+                    }
+                    _ => {}
+                }
+            }
 
             // Push the frame onto the stream's recv buffer
             stream

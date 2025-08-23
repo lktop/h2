@@ -1,5 +1,5 @@
 use super::{util, StreamDependency, StreamId};
-use crate::ext::Protocol;
+use crate::ext::{Protocol, OriginalHeaders};
 use crate::frame::{Error, Frame, Head, Kind};
 use crate::hpack::{self, BytesStr};
 
@@ -28,6 +28,9 @@ pub struct Headers {
 
     /// The associated flags
     flags: HeadersFlag,
+
+    /// The OriginalHeaders  by lktop
+    original_headers: Option<OriginalHeaders>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -120,6 +123,7 @@ impl Headers {
                 pseudo,
             },
             flags: HeadersFlag::default(),
+            original_headers: None,
         }
     }
 
@@ -136,6 +140,7 @@ impl Headers {
                 pseudo: Pseudo::default(),
             },
             flags,
+            original_headers: None,
         }
     }
 
@@ -211,7 +216,12 @@ impl Headers {
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
     ) -> Result<(), Error> {
-        self.header_block.load(src, max_header_list_size, decoder)
+        // 创建 OriginalHeaders 来收集解码后的 headers  by lktop
+        self.original_headers = Some(OriginalHeaders::new(None, Vec::new()));
+
+        self.header_block.load(src, max_header_list_size, decoder,self.original_headers.as_mut())?;
+
+        Ok(())
     }
 
     pub fn stream_id(&self) -> StreamId {
@@ -238,8 +248,8 @@ impl Headers {
         self.header_block.is_over_size
     }
 
-    pub fn into_parts(self) -> (Pseudo, HeaderMap) {
-        (self.header_block.pseudo, self.header_block.fields)
+    pub fn into_parts(self) -> (Pseudo, HeaderMap, Option<OriginalHeaders>) {
+        (self.header_block.pseudo, self.header_block.fields, self.original_headers)
     }
 
     #[cfg(feature = "unstable")]
@@ -456,7 +466,7 @@ impl PushPromise {
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
     ) -> Result<(), Error> {
-        self.header_block.load(src, max_header_list_size, decoder)
+        self.header_block.load(src, max_header_list_size, decoder, None)
     }
 
     pub fn stream_id(&self) -> StreamId {
@@ -832,10 +842,13 @@ impl HeaderBlock {
         src: &mut BytesMut,
         max_header_list_size: usize,
         decoder: &mut hpack::Decoder,
+        mut original_headers: Option<&mut OriginalHeaders>,  // 新增参数 by lktop
     ) -> Result<(), Error> {
         let mut reg = !self.fields.is_empty();
         let mut malformed = false;
         let mut headers_size = self.calculate_header_list_size();
+
+        let original_headers_enable = original_headers.is_some();  // by lktop
 
         macro_rules! set_pseudo {
             ($field:ident, $val:expr) => {{
@@ -850,6 +863,11 @@ impl HeaderBlock {
                     headers_size +=
                         decoded_header_size(stringify!($field).len() + 1, __val.as_str().len());
                     if headers_size < max_header_list_size {
+                        if original_headers_enable{
+                            if let Some(ref mut oh) = original_headers {
+                                oh.push_header(format!(":{}", stringify!($field)), __val.as_str().to_string());
+                            };
+                        }
                         self.pseudo.$field = Some(__val);
                     } else if !self.is_over_size {
                         tracing::trace!("load_hpack; header list size over max");
@@ -872,6 +890,20 @@ impl HeaderBlock {
                 Field { name, value } => {
                     // Connection level header fields are not supported and must
                     // result in a protocol error.
+
+                    // 保存原始header  by lktop
+                    if original_headers_enable {
+                        if let Some(ref mut oh) = original_headers {
+                            let value_string: String = match value.to_str() {
+                            Ok(v) => v.to_string(),
+                            Err(err) => {
+                                    tracing::info!("header value convert to string err: {:?}", err);
+                                    "error".to_string()
+                                },
+                            };
+                            oh.push_header(name.to_string(), value_string);
+                        };
+                    }
 
                     if name == header::CONNECTION
                         || name == header::TRANSFER_ENCODING
