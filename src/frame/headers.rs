@@ -205,6 +205,7 @@ impl Headers {
                 pseudo: Pseudo::default(),
             },
             flags,
+            original_headers: None,
         };
 
         Ok((headers, src))
